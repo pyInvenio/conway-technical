@@ -13,7 +13,7 @@ export const load: PageServerLoad = async ({ params, cookies }) => {
   try {
     // Fetch event details and related anomalies from backend
     const [eventResponse, anomaliesResponse] = await Promise.allSettled([
-      fetch(`${BACKEND_URL}/event/${params.id}`, {
+      fetch(`${BACKEND_URL}/data/event/${params.id}`, {
         headers: { 'Cookie': `session=${session_id}` }
       }),
       fetch(`${BACKEND_URL}/anomalies?event_id=${params.id}`, {

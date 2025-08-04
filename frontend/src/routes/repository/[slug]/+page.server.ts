@@ -13,7 +13,7 @@ export const load: PageServerLoad = async ({ params, cookies, setHeaders }) => {
     
     if (sessionId) {
       const overviewResponse = await fetch(
-        `${BACKEND_URL}/repository/${encodeURIComponent(repoName)}/overview?limit=20`, 
+        `${BACKEND_URL}/data/repository/${encodeURIComponent(repoName)}/overview?limit=20`, 
         {
           headers: { 'Cookie': `session=${sessionId}` }
         }

@@ -42,13 +42,8 @@
         reverse_proxy localhost:8000
     }
     
-    # Backend API routes that conflict with frontend pages
-    # Route to backend only if it's an API call (not HTML page request)
-    @backend_api {
-        path /repository/* /event/*
-        not header Accept text/html
-    }
-    handle @backend_api {
+    # Data API endpoints
+    handle /data/* {
         reverse_proxy localhost:8000
     }
     

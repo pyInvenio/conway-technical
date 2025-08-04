@@ -1,5 +1,8 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { env } from '$env/dynamic/private';
+
+const BACKEND_URL = env.BACKEND_URL || 'http://localhost:8000';
 
 export const GET: RequestHandler = async ({ url, fetch }) => {
     const repoId = url.searchParams.get('id');
@@ -10,8 +13,7 @@ export const GET: RequestHandler = async ({ url, fetch }) => {
 
     try {
         // Fetch repository context from backend
-        // In production within the container, backend is on localhost:8000
-        const backendUrl = `http://localhost:8000/repository/${encodeURIComponent(repoId)}`;
+        const backendUrl = `${BACKEND_URL}/data/repository/${encodeURIComponent(repoId)}`;
         const response = await fetch(backendUrl);
         
         if (!response.ok) {

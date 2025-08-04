@@ -308,7 +308,7 @@ async def get_repositories(
     
     return result
 
-@app.get("/repository/{repo_name:path}/overview")
+@app.get("/data/repository/{repo_name:path}/overview")
 async def get_repository_overview(
     repo_name: str,
     limit: int = Query(20, ge=1, le=100),
@@ -422,7 +422,7 @@ async def get_repository_overview(
         logger.error(f"Error fetching repository overview: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.get("/repository/{repo_name:path}")
+@app.get("/data/repository/{repo_name:path}")
 async def get_repository_details(
     repo_name: str,
     db: Session = Depends(get_db)
@@ -459,7 +459,7 @@ async def get_repository_details(
         logger.error(f"Error fetching repository details: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.get("/event/{event_id}")
+@app.get("/data/event/{event_id}")
 async def get_event_details(
     event_id: str,
     db: Session = Depends(get_db)
