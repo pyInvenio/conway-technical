@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, and_, or_, func
+from sqlalchemy import desc, and_, or_, func, case
+import json
 
 from ...database import get_db
 from ...models import AnomalyDetection, SecretDetection, TemporalPattern, GitHubEvent
@@ -112,6 +113,112 @@ async def get_anomalies(
             "top_users": get_top_users(db, since, limit=5),
             "top_repositories": get_top_repositories(db, since, limit=5)
         }
+    }
+
+@router.get("/anomalies/detection-matrix")
+async def get_detection_matrix(
+    hours: int = Query(24, ge=1, le=168),  # Default 24 hours, max 1 week
+    db: Session = Depends(get_db),
+):
+    """Get detection matrix data for visualization"""
+    
+    now = datetime.utcnow()
+    start_time = now - timedelta(hours=hours)
+    
+    # Define time slots (4-hour chunks for 24 hours)
+    time_slots = []
+    for i in range(0, hours, 4):
+        time_slots.append({
+            "key": f"{i}-{i+4}h",
+            "label": f"{i}-{i+4}h ago",
+            "start": now - timedelta(hours=i+4),
+            "end": now - timedelta(hours=i)
+        })
+    
+    detection_methods = ["behavioral", "content", "temporal", "repository"]
+    
+    matrix_data = []
+    
+    anomalies = db.query(AnomalyDetection).filter(
+        AnomalyDetection.detection_timestamp >= start_time
+    ).all()
+    
+    for method in detection_methods:
+        for slot in time_slots:
+            cell_anomalies = []
+            for anomaly in anomalies:
+                if slot["start"] <= anomaly.detection_timestamp < slot["end"]:
+                    scores = {
+                        "behavioral": anomaly.behavioral_anomaly_score or 0,
+                        "content": anomaly.content_risk_score or 0,
+                        "temporal": anomaly.temporal_anomaly_score or 0,
+                        "repository": anomaly.repository_criticality_score or 0
+                    }
+                    
+                    # Check if this method is the primary one
+                    if method == max(scores, key=scores.get):
+                        cell_anomalies.append(anomaly)
+            
+            # Calculate cell statistics
+            if cell_anomalies:
+                scores = [a.final_anomaly_score for a in cell_anomalies]
+                critical_count = len([a for a in cell_anomalies if a.severity_level in ["CRITICAL", "HIGH"]])
+                
+                matrix_data.append({
+                    "method": method,
+                    "timeSlot": slot["key"],
+                    "count": len(cell_anomalies),
+                    "avgScore": sum(scores) / len(scores),
+                    "maxScore": max(scores),
+                    "criticalCount": critical_count,
+                    "anomalyIds": [a.event_id for a in cell_anomalies[:5]]  # Sample IDs
+                })
+            else:
+                matrix_data.append({
+                    "method": method,
+                    "timeSlot": slot["key"],
+                    "count": 0,
+                    "avgScore": 0,
+                    "maxScore": 0,
+                    "criticalCount": 0,
+                    "anomalyIds": []
+                })
+    
+    total_anomalies = len(anomalies)
+    critical_anomalies = len([a for a in anomalies if a.severity_level in ["CRITICAL", "HIGH"]])
+    
+    event_types = {}
+    for anomaly in anomalies:
+        event_type = anomaly.event_type
+        if event_type not in event_types:
+            event_types[event_type] = {"count": 0, "avgScore": 0, "scores": []}
+        event_types[event_type]["count"] += 1
+        event_types[event_type]["scores"].append(anomaly.final_anomaly_score)
+    
+    for event_type, data in event_types.items():
+        if data["scores"]:
+            data["avgScore"] = sum(data["scores"]) / len(data["scores"])
+        del data["scores"] 
+    
+    return {
+        "matrix": matrix_data,
+        "timeSlots": [{"key": s["key"], "label": s["label"]} for s in time_slots],
+        "detectionMethods": [
+            {"key": "behavioral", "label": "Behavioral"},
+            {"key": "content", "label": "Content Analysis"},
+            {"key": "temporal", "label": "Temporal Patterns"},
+            {"key": "repository", "label": "Repository Context"}
+        ],
+        "summary": {
+            "totalAnomalies": total_anomalies,
+            "criticalAnomalies": critical_anomalies,
+            "timeRange": {
+                "hours": hours,
+                "start": start_time.isoformat(),
+                "end": now.isoformat()
+            }
+        },
+        "eventTypes": event_types
     }
 
 @router.get("/anomalies/{event_id}")

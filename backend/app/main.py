@@ -308,6 +308,120 @@ async def get_repositories(
     
     return result
 
+@app.get("/repository/{repo_name:path}/overview")
+async def get_repository_overview(
+    repo_name: str,
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db)
+):
+    """Get repository details with recent anomalies in a single optimized call"""
+    cache_key = f"repo_overview:{repo_name}:limit:{limit}"
+    
+    try:
+        cached_result = await redis_client.get(cache_key)
+        if cached_result:
+            return json.loads(cached_result)
+    except Exception as e:
+        logger.warning(f"Redis cache read failed: {e}")
+    
+    try:
+        stats = db.query(
+            func.count(AnomalyDetection.id).label('anomaly_count'),
+            func.max(AnomalyDetection.detection_timestamp).label('last_activity'),
+            func.avg(AnomalyDetection.final_anomaly_score).label('avg_severity')
+        ).filter(AnomalyDetection.repository_name == repo_name).first()
+        
+        if not stats.anomaly_count:
+            result = {
+                "repository": {
+                    "name": repo_name,
+                    "events": 0,
+                    "lastActivity": datetime.utcnow().isoformat(),
+                    "riskScore": 0,
+                    "status": "normal"
+                },
+                "anomalies": [],
+                "pagination": {
+                    "page": 1,
+                    "limit": limit,
+                    "total": 0,
+                    "pages": 0,
+                    "has_next": False,
+                    "has_prev": False
+                }
+            }
+            try:
+                await redis_client.setex(cache_key, 60, json.dumps(result, default=str))
+            except Exception as e:
+                logger.warning(f"Redis cache write failed: {e}")
+            return result
+        
+        recent_anomalies_query = db.query(AnomalyDetection, GitHubEvent)\
+            .outerjoin(GitHubEvent, AnomalyDetection.event_id == GitHubEvent.id)\
+            .filter(AnomalyDetection.repository_name == repo_name)\
+            .order_by(AnomalyDetection.detection_timestamp.desc())\
+            .limit(limit).all()
+        
+        anomalies_data = []
+        for anomaly, github_event in recent_anomalies_query:
+            anomalies_data.append({
+                "event_id": anomaly.event_id,
+                "timestamp": anomaly.detection_timestamp.isoformat(),
+                "user_login": anomaly.user_login,
+                "repository_name": anomaly.repository_name,
+                "event_type": anomaly.event_type,
+                "final_anomaly_score": anomaly.final_anomaly_score,
+                "severity_level": anomaly.severity_level,
+                "severity_description": anomaly.severity_description,
+                "detection_scores": {
+                    "behavioral": anomaly.behavioral_anomaly_score,
+                    "content": anomaly.content_risk_score,
+                    "temporal": anomaly.temporal_anomaly_score,
+                    "repository_criticality": anomaly.repository_criticality_score
+                },
+                "behavioral_analysis": json.loads(anomaly.behavioral_analysis) if anomaly.behavioral_analysis else {},
+                "content_analysis": json.loads(anomaly.content_analysis) if anomaly.content_analysis else {},
+                "temporal_analysis": json.loads(anomaly.temporal_analysis) if anomaly.temporal_analysis else {},
+                "repository_context": json.loads(anomaly.repository_context) if anomaly.repository_context else {},
+                "ai_summary": anomaly.ai_summary,
+                "high_risk_indicators": json.loads(anomaly.high_risk_indicators) if anomaly.high_risk_indicators else [],
+                "event_payload": github_event.payload if github_event else None,
+                "event_created_at": github_event.created_at.isoformat() if github_event else None
+            })
+        
+        total_pages = (stats.anomaly_count + limit - 1) // limit
+        
+        result = {
+            "repository": {
+                "name": repo_name,
+                "events": stats.anomaly_count,
+                "lastActivity": stats.last_activity.isoformat() if stats.last_activity else datetime.utcnow().isoformat(),
+                "riskScore": min(int(stats.avg_severity * 100), 100) if stats.avg_severity else 0,
+                "status": "critical" if stats.avg_severity and stats.avg_severity >= 0.8 else "warning" if stats.avg_severity and stats.avg_severity >= 0.6 else "normal"
+            },
+            "anomalies": anomalies_data,
+            "pagination": {
+                "page": 1,
+                "limit": limit,
+                "total": stats.anomaly_count,
+                "pages": total_pages,
+                "has_next": stats.anomaly_count > limit,
+                "has_prev": False
+            }
+        }
+        
+        try:
+            await redis_client.setex(cache_key, 30, json.dumps(result, default=str))
+        except Exception as e:
+            logger.warning(f"Redis cache write failed: {e}")
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching repository overview: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 @app.get("/repository/{repo_name:path}")
 async def get_repository_details(
     repo_name: str,
@@ -315,7 +429,6 @@ async def get_repository_details(
 ):
     """Get repository details with incident summary"""
     try:
-        
         # Get repository stats
         stats = db.query(
             func.count(AnomalyDetection.id).label('anomaly_count'),

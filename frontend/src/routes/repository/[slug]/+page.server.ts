@@ -4,57 +4,65 @@ import { error } from '@sveltejs/kit';
 
 const BACKEND_URL = env.BACKEND_URL || 'http://localhost:8000';
 
-export const load: PageServerLoad = async ({ params, cookies }) => {
+export const load: PageServerLoad = async ({ params, cookies, setHeaders }) => {
   const { slug } = params;
   const sessionId = cookies.get('session');
   
   try {
-    // Decode repository name (e.g., microsoft%2Fvscode -> microsoft/vscode)
     const repoName = decodeURIComponent(slug);
     
     if (sessionId) {
-      // Fetch repository details, anomalies, and statistics
-      const [repoResponse, anomaliesResponse, statsResponse] = await Promise.allSettled([
-        fetch(`${BACKEND_URL}/repository/${encodeURIComponent(repoName)}`, {
+      const overviewResponse = await fetch(
+        `${BACKEND_URL}/repository/${encodeURIComponent(repoName)}/overview?limit=20`, 
+        {
           headers: { 'Cookie': `session=${sessionId}` }
-        }),
-        fetch(`${BACKEND_URL}/anomalies?repo=${encodeURIComponent(repoName)}&limit=50`, {
-          headers: { 'Cookie': `session=${sessionId}` }
-        }),
-        fetch(`${BACKEND_URL}/api/v1/anomalies/stats/summary?days=30`, {
-          headers: { 'Cookie': `session=${sessionId}` }
-        })
-      ]);
+        }
+      );
 
-      const repository = repoResponse.status === 'fulfilled' && repoResponse.value.ok 
-        ? await repoResponse.value.json() 
-        : null;
-
-      const anomalies = anomaliesResponse.status === 'fulfilled' && anomaliesResponse.value.ok 
-        ? await anomaliesResponse.value.json() 
-        : { anomalies: [], pagination: { page: 1, limit: 50, total: 0, pages: 0, has_next: false, has_prev: false } };
-
-      const stats = statsResponse.status === 'fulfilled' && statsResponse.value.ok 
-        ? await statsResponse.value.json() 
-        : null;
-
-      if (!repository) {
-        throw error(404, 'Repository not found');
+      if (!overviewResponse.ok) {
+        if (overviewResponse.status === 404) {
+          throw error(404, 'Repository not found');
+        }
+        throw error(overviewResponse.status, 'Failed to fetch repository data');
       }
+
+      const overviewData = await overviewResponse.json();
+      
+      // Optional: Fetch global stats in background (non-blocking)
+      let globalStats = null;
+      try {
+        const statsResponse = await fetch(
+          `${BACKEND_URL}/api/v1/anomalies/stats/summary?days=7`, // Reduced from 30 to 7 days
+          {
+            headers: { 'Cookie': `session=${sessionId}` },
+            signal: AbortSignal.timeout(2000) // 2 second timeout
+          }
+        );
+        if (statsResponse.ok) {
+          globalStats = await statsResponse.json();
+        }
+      } catch (statsError) {
+      }
+
+      setHeaders({
+        'cache-control': 'private, max-age=30'
+      });
 
       return {
         repository: {
-          ...repository,
-          anomalies: anomalies.anomalies
+          ...overviewData.repository,
+          anomalies: overviewData.anomalies
         },
-        anomaliesPagination: anomalies.pagination,
-        globalStats: stats
+        anomaliesPagination: overviewData.pagination,
+        globalStats
       };
     }
 
     throw error(401, 'Authentication required');
   } catch (err) {
-    console.error('Failed to fetch repository data:', err);
+    if (err.status) {
+      throw err; // Re-throw SvelteKit errors
+    }
     throw error(500, 'Failed to load repository');
   }
 };
