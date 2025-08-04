@@ -16,7 +16,7 @@ export const load: PageServerLoad = async ({ params, cookies }) => {
       fetch(`${BACKEND_URL}/data/event/${params.id}`, {
         headers: { 'Cookie': `session=${session_id}` }
       }),
-      fetch(`${BACKEND_URL}/anomalies?event_id=${params.id}`, {
+      fetch(`${BACKEND_URL}/api/v1/anomalies?event_id=${params.id}`, {
         headers: { 'Cookie': `session=${session_id}` }
       })
     ]);
