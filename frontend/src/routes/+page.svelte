@@ -1,6 +1,6 @@
 <script>
   import { onMount } from "svelte";
-  import { anomalyStore } from "$lib/stores/incidents.svelte";
+  import { anomalyStore } from "$lib/stores/anomalies.svelte";
   import { repositoryStore } from "$lib/stores/repositories.svelte";
   import { metricsStore } from "$lib/stores/metrics.svelte";
   import { repoMonitorStore } from "$lib/stores/repoMonitor.svelte";
@@ -19,26 +19,15 @@
   const anomalies = $derived(anomalyStore.anomalies);
   const anomaliesForBubbleMap = $derived(anomalies);
 
-  // Add debug logging for the derived value
-  $effect(() => {
-    console.log('Main page anomalies updated:', anomalies?.length);
-    console.log('Main page anomaliesForBubbleMap updated:', anomaliesForBubbleMap?.length);
-  });
-
-  // Load initial anomalies on page load - this is now handled by the anomaly store
+  // Load initial anomalies on page load
   async function loadInitialAnomalies() {
-    console.log('🔄 Loading initial anomalies...');
     // Load page of anomalies from the last 24 hours
     await anomalyStore.loadPage(1, 100);
-    console.log(`✅ Loaded ${anomalies.length} anomalies from anomaly store`);
-    console.log('🔍 First few anomalies:', anomalies.slice(0, 2));
   }
 
   onMount(async () => {
-    console.log("Page mounted with data:", data);
 
     if (data.initialData) {
-      console.log("Initializing stores with SSR data:", data.initialData);
       anomalyStore.initializeFromSSR(data.initialData);
       repositoryStore.initializeFromSSR(data.initialData);
       metricsStore.initializeFromSSR(data.initialData);
@@ -46,7 +35,6 @@
     }
 
     if (data.authenticated) {
-      console.log("User is authenticated, connecting to WebSocket...");
 
       if (data.githubToken) {
         websocketStore.setToken(data.githubToken);
@@ -79,10 +67,6 @@
         <DetectionMatrix />
       </section>
       
-      <!-- Debug: Show store state -->
-      <div class="text-xs text-gray-500 mt-2">
-        Debug: Anomaly store has {anomalies?.length || 0} anomalies
-      </div>
     </main>
   </div>
 {:else}

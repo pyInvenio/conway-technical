@@ -3,7 +3,7 @@
   import Card from '$lib/components/ui/Card.svelte';
   import Badge from '$lib/components/ui/Badge.svelte';
   import Button from '$lib/components/ui/Button.svelte';
-  import { anomalyStore } from '$lib/stores/incidents.svelte';
+  import { anomalyStore } from '$lib/stores/anomalies.svelte';
   import IncidentDetailModal from './IncidentDetailModal.svelte';
   import { 
     parseAISummary, 
@@ -21,10 +21,6 @@
   const processingStats = $derived(anomalyStore.processingStats);
   const isConnected = $derived(anomalyStore.isConnected);
   
-  // Debug what IncidentFeed is actually getting
-  $effect(() => {
-    console.log('🔍 IncidentFeed: anomalies updated to', anomalies?.length || 0);
-  });
   
   let isLive = $state(true);
   
@@ -47,9 +43,7 @@
     
     if (isLive) {
       anomalyStore.loadPage(1, pagination.limit);
-      console.log('Live mode enabled');
     } else {
-      console.log('Live mode paused');
     }
   }
   
@@ -94,9 +88,7 @@
     }
   }
 
-  // Helper to get structured summary for display
   function getDisplaySummary(anomaly) {
-    // Get component scores
     const componentScores: ComponentScores = {
       behavioral: anomaly.behavioral_anomaly_score || 0,
       content: anomaly.content_risk_score || 0,
@@ -104,14 +96,12 @@
       repository: anomaly.repository_criticality_score || 0
     };
 
-    // Try to parse AI summary first
     const parsedSummary = parseAISummary(anomaly.ai_summary);
     
     if (parsedSummary) {
       return parsedSummary;
     }
 
-    // Generate fallback summary
     return generateFallbackSummary(
       anomaly.event_type,
       anomaly.final_anomaly_score,
@@ -129,7 +119,6 @@
       repository: Number(anomaly.repository_criticality_score || anomaly.detection_scores?.repository_criticality) || 0
     };
 
-    console.log('IncidentFeed detection scores:', componentScores);
     return getPrimaryDetectionMethod(componentScores);
   }
 

@@ -6,7 +6,7 @@
   import Progress from "$lib/components/ui/Progress.svelte";
   import { repositoryStore } from "$lib/stores/repositories.svelte";
   import { repoMonitorStore } from "$lib/stores/repoMonitor.svelte";
-  import { anomalyStore } from "$lib/stores/incidents.svelte";
+  import { anomalyStore } from "$lib/stores/anomalies.svelte";
   import RepositoryDetailModal from "./RepositoryDetailModal.svelte";
 
   // Use dedicated repo monitor store

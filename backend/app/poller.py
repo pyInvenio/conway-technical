@@ -37,7 +37,6 @@ class RateLimitManager:
         # Try to acquire semaphore slot
         current_slots = await self.redis_client.scard(self.semaphore_key)
         if current_slots >= self.max_concurrent_requests:
-            logger.debug(f"All API slots occupied ({current_slots}/{self.max_concurrent_requests})")
             return False
             
         # Check distributed rate limit
@@ -109,14 +108,12 @@ class GitHubPoller:
     async def run(self):
         """Main polling loop with improved rate limiting and coordination"""
         await self.setup()
-        logger.info(f"Starting poller {self.poller_id}...")
         
         while True:
             try:
                 # Check if we're in local backoff
                 if self.backoff_until and datetime.now() < self.backoff_until:
                     wait_seconds = (self.backoff_until - datetime.now()).total_seconds()
-                    logger.debug(f"In backoff for {wait_seconds:.1f}s")
                     await asyncio.sleep(min(wait_seconds, 60))  # Cap wait time
                     continue
                 
@@ -124,7 +121,6 @@ class GitHubPoller:
                 if not await self.rate_limiter.acquire_api_slot():
                     # Wait with jitter before retrying
                     wait_time = 30 + random.uniform(0, 30)
-                    logger.debug(f"No API slot available, waiting {wait_time:.1f}s")
                     await asyncio.sleep(wait_time)
                     continue
                 
@@ -135,9 +131,6 @@ class GitHubPoller:
                     if all_events:
                         await self.process_events(all_events)
                         self.consecutive_failures = 0
-                    else:
-                        # No events or conditional request returned 304
-                        logger.debug("No new events to process")
                 
                 finally:
                     # Always release the API slot
@@ -147,7 +140,6 @@ class GitHubPoller:
                 remaining, reset_time = await self.rate_limiter.get_shared_rate_limit()
                 sleep_time = self._calculate_sleep_time(remaining, reset_time)
                 
-                logger.info(f"Poller {self.poller_id}: {remaining} rate limit remaining, sleeping {sleep_time}s")
                 await asyncio.sleep(sleep_time)
                 
             except Exception as e:
@@ -204,16 +196,13 @@ class GitHubPoller:
                 else:
                     duplicate_count += 1
             
-            logger.debug(f"Page {page}: {new_events_in_page} new events, {len(events) - new_events_in_page} duplicates")
             
             # Stop if we're hitting too many duplicates (indicates we've caught up)
             if duplicate_count >= max_duplicates:
-                logger.info(f"Stopping pagination due to {duplicate_count} consecutive duplicates - likely caught up")
                 break
                 
             # If we got less than 100 events, we've reached the end
             if len(events) < 100:
-                logger.debug(f"Reached end of events at page {page} ({len(events)} events)")
                 break
                 
             # Adaptive pause between requests based on rate limit
@@ -221,7 +210,6 @@ class GitHubPoller:
             pause_time = 0.5 if remaining > 1000 else 1.0 if remaining > 500 else 2.0
             await asyncio.sleep(pause_time)
         
-        logger.info(f"Smart pagination: {len(all_events)} unique events across {page} pages, {duplicate_count} duplicates found")
         return all_events
     
     async def fetch_events_page(self, page: int = 1) -> List[Dict[str, Any]]:
@@ -257,7 +245,6 @@ class GitHubPoller:
                 # Log rate limit status on first page
                 if page == 1:
                     reset_time = datetime.fromtimestamp(reset_timestamp) if reset_timestamp else datetime.now()
-                    logger.info(f"Updated shared rate limit: {remaining} remaining, resets at {reset_time}")
                 
                 # Handle rate limiting with improved backoff and circuit breaker
                 if response.status in (403, 429):
@@ -277,7 +264,6 @@ class GitHubPoller:
                 
                 # Handle conditional request (no new data)
                 if response.status == 304:
-                    logger.info("No new events (304 Not Modified)")
                     return []
                 
                 if response.status == 200:
@@ -286,7 +272,6 @@ class GitHubPoller:
                         self.last_etag = response.headers.get("ETag")
                     
                     events = await response.json()
-                    logger.debug(f"Fetched {len(events)} events from page {page}")
                     return events
                 
                 logger.error(f"GitHub API returned status {response.status} for page {page}")
@@ -342,8 +327,6 @@ class GitHubPoller:
                 else:
                     # Unknown event type - store occasionally for analysis
                     should_store = random.random() < 0.1
-                    if should_store:
-                        logger.info(f"Storing unknown event type for analysis: {event_type}")
                 
                 if not should_store:
                     skipped_events += 1
@@ -403,7 +386,6 @@ class GitHubPoller:
             # Commit all events at once
             if processed_events:
                 db.commit()
-                logger.info(f"Successfully processed {new_events_count} events")
                 
                 # Queue events for further processing after successful DB commit
                 for event in processed_events:
@@ -418,15 +400,12 @@ class GitHubPoller:
                         )
                     except Exception as redis_error:
                         logger.warning(f"Failed to queue event {event['id']} for processing: {redis_error}")
-            else:
-                logger.info("No new events to process")
             
         except Exception as e:
             logger.error(f"Error processing events batch: {e}")
             db.rollback()
             
             # Fallback: try processing events one by one
-            logger.info("Attempting individual event processing as fallback...")
             await self._process_events_individually(events, interesting_types)
             
         finally:
@@ -445,7 +424,6 @@ class GitHubPoller:
                 # Check if event already exists
                 existing = db.query(GitHubEvent).filter_by(id=event["id"]).first()
                 if existing:
-                    logger.debug(f"Event {event['id']} already exists, skipping")
                     continue
                 
                 # Create and save event
@@ -482,6 +460,3 @@ class GitHubPoller:
                 db.rollback()
             finally:
                 db.close()
-        
-        if successful_count > 0:
-            logger.info(f"Fallback processing completed: {successful_count} events processed individually")

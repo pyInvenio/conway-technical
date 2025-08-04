@@ -87,22 +87,14 @@ function createAnomalyStore() {
         
         // Load paginated anomalies
         async loadPage(page = 1, limit = 20) {
-            console.log('🔄 AnomalyStore: loadPage called with', page, limit);
             loading = true;
             try {
-                const url = `http://localhost:8000/api/v1/anomalies?page=${page}&limit=${limit}`;
-                console.log('🌐 AnomalyStore: fetching from', url);
-                const response = await fetch(url);
-                
-                console.log('📡 AnomalyStore: response status', response.status);
+                const response = await fetch(`http://localhost:8000/api/v1/anomalies?page=${page}&limit=${limit}`);
                 
                 if (response.ok) {
                     const data = await response.json();
-                    console.log('📦 AnomalyStore: received data with', data.anomalies?.length || 0, 'anomalies');
                     anomalies = data.anomalies;
                     pagination = data.pagination;
-                    console.log('✅ AnomalyStore: stored', anomalies.length, 'anomalies in state');
-                    console.log(`Loaded page ${page}: ${data.anomalies.length} anomalies`);
                 } else {
                     console.error('Failed to load anomalies:', response.status, response.statusText);
                 }
@@ -157,7 +149,6 @@ function createAnomalyStore() {
         // Control live updates
         setLiveUpdates(enabled) {
             liveUpdatesEnabled = enabled;
-            console.log('Live updates:', enabled ? 'enabled' : 'disabled');
         },
 
         // Handle new anomaly from WebSocket
@@ -172,22 +163,18 @@ function createAnomalyStore() {
                         ...pagination,
                         total: pagination.total + 1
                     };
-                    console.log('New anomaly received via WebSocket:', anomalyData);
                 }
             } else if (!liveUpdatesEnabled) {
-                console.log('New anomaly received but live updates are paused');
             }
         },
 
         // Handle processing statistics
         handleProcessingStats(statsData) {
             processingStats = statsData;
-            console.log('Processing stats updated:', statsData);
         },
 
         // Handle events processed updates  
         handleEventsProcessed(eventData) {
-            console.log('Events processed:', eventData);
         },
         
         // Disconnect from WebSocket

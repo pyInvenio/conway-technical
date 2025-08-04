@@ -83,7 +83,6 @@ class QueueWorker:
     async def run(self):
         """Main worker loop with batch processing for better performance"""
         await self.setup()
-        logger.info("Starting queue worker with batch processing")
         
         while True:
             try:
@@ -91,7 +90,6 @@ class QueueWorker:
                 batch = await self.get_event_batch(batch_size=50, timeout=5)
                 
                 if batch:
-                    logger.info(f"Processing batch of {len(batch)} events")
                     await self.process_event_batch(batch)
                     
             except Exception as e:
@@ -213,7 +211,6 @@ class QueueWorker:
             
             # Commit all changes at once
             db.commit()
-            logger.info(f"Batch processed: {processed_count} events, {anomaly_count} anomalies detected")
             
             # Broadcast processing statistics for real-time dashboard updates
             if processed_count > 0:
@@ -340,7 +337,6 @@ class QueueWorker:
             ).order_by(GitHubEvent.created_at.desc()).all()
             
             if not recent_events:
-                logger.debug(f"No unassigned recent events for {repo_name}")
                 return
             
             # Convert SQLAlchemy events to dict format for anomaly detection
@@ -429,7 +425,6 @@ class QueueWorker:
             # Invalidate relevant caches
             if stored_anomalies or high_severity_anomalies:
                 invalidated_count = await cache_service.invalidate_all()
-                logger.info(f"Processed {len(stored_anomalies)} anomalies, {len(high_severity_anomalies)} high-severity")
             
         except Exception as e:
             logger.error(f"Error processing event: {e}")
@@ -454,7 +449,6 @@ class QueueWorker:
                 "data": anomaly
             }))
             
-            logger.info(f"Broadcast anomaly {anomaly['event_id']} with severity {anomaly['severity_level']}")
             
         except Exception as e:
             logger.error(f"Failed to broadcast anomaly: {e}")

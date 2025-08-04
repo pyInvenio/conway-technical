@@ -26,31 +26,8 @@
 
   let { show = false, incident = null, onclose } = $props();
 
-  // Map incident prop to anomaly for backward compatibility
   let anomaly = $derived(incident);
 
-  // Debug logging
-  $effect(() => {
-    console.log(
-      "IncidentDetailModal effect - browser:",
-      browser,
-      "show:",
-      show,
-      "incident:",
-      incident
-    );
-    if (incident) {
-      console.log("Incident keys:", Object.keys(incident));
-      console.log("Incident scores:", {
-        behavioral: incident.behavioral_anomaly_score,
-        content: incident.content_risk_score,
-        temporal: incident.temporal_anomaly_score,
-        repository: incident.repository_criticality_score,
-      });
-    }
-  });
-
-  // Get enhanced summary data
   let enhancedSummary = $derived(
     anomaly
       ? (() => {

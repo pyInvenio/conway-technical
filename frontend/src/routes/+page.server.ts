@@ -30,13 +30,13 @@ async function fetchInitialData(sessionId?: string) {
     
     // Fallback: fetch data from individual endpoints
     try {
-      const [incidents, metrics] = await Promise.allSettled([
-        fetchWithFallback(`${BACKEND_URL}/incidents?page=1&limit=20`, { headers }),
+      const [anomalies, metrics] = await Promise.allSettled([
+        fetchWithFallback(`${BACKEND_URL}/api/v1/anomalies?page=1&limit=20`, { headers }),
         fetchWithFallback(`${BACKEND_URL}/metrics`, { headers })
       ]);
       
-      const incidentsData = incidents.status === 'fulfilled' ? incidents.value : {
-        incidents: [],
+      const anomaliesData = anomalies.status === 'fulfilled' ? anomalies.value : {
+        anomalies: [],
         pagination: { page: 1, limit: 20, total: 0, pages: 0, has_next: false, has_prev: false }
       };
       
@@ -60,7 +60,7 @@ async function fetchInitialData(sessionId?: string) {
       }
       
       return {
-        incidents: incidentsData,
+        anomalies: anomaliesData,
         metrics: metricsData,
         repositories: repositoriesData
       };

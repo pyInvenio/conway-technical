@@ -21,14 +21,11 @@ from .worker import QueueWorker
 from .cache import cache_service
 from .websocket_manager import websocket_manager
 from .config import settings
-from .api.v1.anomalies import router as anomalies_router
+from .api.v1.anomalies import router as anomalies_router, get_anomalies
 from .cleanup import DatabaseCleanup
 
-# Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Global state
 active_pollers: Dict[str, asyncio.Task] = {}
 redis_client = None
 worker_task = None
@@ -39,73 +36,42 @@ async def lifespan(app: FastAPI):
     """Manage application lifecycle"""
     global redis_client, worker_task
     
-    # Startup
     logger.info("Starting GitHub Monitor Backend")
-    
-    # Database is now managed by Alembic migrations
-    # Run: alembic upgrade head
-    
-    # Initialize Redis
     redis_client = await redis.from_url(settings.redis_url)
-    
-    # Initialize cache service
     cache_service.redis_client = redis_client
     await cache_service.setup()
-    logger.info("Cache service initialized")
-    
-    # Initialize WebSocket manager
     await websocket_manager.setup(redis_client)
-    logger.info("WebSocket manager initialized")
-    
-    # Start multiple workers for faster processing
     worker_tasks = []
-    num_workers = 3  # Run 3 workers in parallel
+    num_workers = 3
     for i in range(num_workers):
         worker = QueueWorker(redis_client)
         worker_task = asyncio.create_task(worker.run())
         worker_tasks.append(worker_task)
-        logger.info(f"Started worker {i+1}/{num_workers}")
     
-    # Store reference to all workers for shutdown
-    worker_task = worker_tasks[0]  # Keep backward compatibility
-    
-    # Start auto-polling with stored sessions/tokens on startup
+    worker_task = worker_tasks[0]
     asyncio.create_task(start_existing_pollers())
-    
-    # Start daily cleanup task
     asyncio.create_task(schedule_daily_cleanup())
     
     yield
     
-    # Shutdown
     logger.info("Shutting down GitHub Monitor Backend")
-    
-    # Cancel all pollers
     for task in active_pollers.values():
         task.cancel()
-    
-    # Shutdown WebSocket manager
     await websocket_manager.shutdown()
-    
-    # Cancel all worker tasks
     if 'worker_tasks' in locals():
         for task in worker_tasks:
             task.cancel()
     elif worker_task:
         worker_task.cancel()
-    
     if redis_client:
         await redis_client.close()
 
-# Create FastAPI app
 app = FastAPI(
     title="GitHub Monitor API",
     description="Real-time GitHub activity monitoring with AI-powered threat detection",
     version="1.0.0",
     lifespan=lifespan
 )
-
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:3000"],
@@ -113,27 +79,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Include API routers
 app.include_router(anomalies_router)
 
 async def start_existing_pollers():
     """Start pollers for existing active sessions and configured GitHub token on startup"""
     try:
-        # First, start a poller with the configured GitHub token if available
         if settings.github_token and settings.github_token != "your-github-token-change-in-production":
             try:
                 poller_key = f"poller:{settings.github_token[:8]}"
                 if poller_key not in active_pollers or active_pollers[poller_key].done():
                     poller = GitHubPoller(settings.github_token)
                     active_pollers[poller_key] = asyncio.create_task(poller.run())
-                    logger.info(f"Auto-started poller with configured GitHub token")
             except Exception as e:
                 logger.error(f"Failed to start poller with configured token: {e}")
-        
-        # Then check for existing user sessions
         session_keys = await redis_client.keys("session:*")
-        logger.info(f"Found {len(session_keys)} existing sessions")
         
         for session_key in session_keys:
             try:
@@ -149,12 +108,10 @@ async def start_existing_pollers():
                         if poller_key not in active_pollers or active_pollers[poller_key].done():
                             poller = GitHubPoller(token)
                             active_pollers[poller_key] = asyncio.create_task(poller.run())
-                            logger.info(f"Auto-started poller for user {user_login}")
             
             except Exception as e:
                 logger.error(f"Failed to start poller for session {session_key}: {e}")
         
-        logger.info(f"Started {len(active_pollers)} pollers total")
                 
     except Exception as e:
         logger.error(f"Failed to start existing pollers: {e}")
@@ -174,14 +131,11 @@ async def schedule_daily_cleanup():
                 next_cleanup += timedelta(days=1)
             
             wait_seconds = (next_cleanup - now).total_seconds()
-            logger.info(f"Next database cleanup scheduled for {next_cleanup} UTC (in {wait_seconds/3600:.1f} hours)")
             
             await asyncio.sleep(wait_seconds)
             
             # Run cleanup
-            logger.info("Starting scheduled database cleanup...")
             result = await cleanup.run_cleanup(dry_run=False)
-            logger.info(f"Scheduled cleanup completed: {result}")
             
         except Exception as e:
             logger.error(f"Scheduled cleanup failed: {e}")
@@ -262,7 +216,6 @@ async def validate_token(request: Request):
         if poller_key not in active_pollers or active_pollers[poller_key].done():
             poller = GitHubPoller(token)
             active_pollers[poller_key] = asyncio.create_task(poller.run())
-            logger.info(f"Started poller for user {user_data['login']}")
         
         # Create response
         response = JSONResponse({
@@ -307,7 +260,6 @@ async def get_repositories(
     try:
         cached_result = await redis_client.get(cache_key)
         if cached_result:
-            logger.info(f"Cache hit for repositories page {page}")
             return json.loads(cached_result)
     except Exception as e:
         logger.warning(f"Redis cache read failed: {e}")
@@ -351,7 +303,6 @@ async def get_repositories(
     # Cache the result for 60 seconds (repositories change less frequently)
     try:
         await redis_client.setex(cache_key, 60, json.dumps(result, default=str))
-        logger.info(f"Cached repositories page {page}")
     except Exception as e:
         logger.warning(f"Redis cache write failed: {e}")
     
@@ -440,102 +391,7 @@ async def get_event_details(
         logger.error(f"Error fetching event details: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.get("/anomalies") 
-async def get_anomalies(
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
-    repo: Optional[str] = Query(None),
-    since: Optional[datetime] = Query(None),
-    hours: Optional[int] = Query(None, ge=1, le=168),
-    severity: Optional[str] = Query(None),  # Filter by severity level
-    db: Session = Depends(get_db)
-):
-    """Get paginated anomaly detections from the new anomaly detection system"""
-    
-    # Create cache key
-    since_str = since.isoformat() if since else "all"
-    hours_str = str(hours) if hours else "all"
-    repo_str = repo or "all"
-    severity_str = severity or "all"
-    cache_key = f"anomalies:page:{page}:limit:{limit}:repo:{repo_str}:since:{since_str}:hours:{hours_str}:severity:{severity_str}"
-    
-    # Try to get from Redis cache first
-    try:
-        cached_result = await redis_client.get(cache_key)
-        if cached_result:
-            logger.info(f"Cache hit for anomalies page {page}")
-            return json.loads(cached_result)
-    except Exception as e:
-        logger.warning(f"Redis cache read failed: {e}")
-    
-    # Cache miss - query database
-    offset = (page - 1) * limit
-    
-    query = db.query(AnomalyDetection).order_by(AnomalyDetection.detection_timestamp.desc())
-    
-    if repo:
-        query = query.filter(AnomalyDetection.repository_name == repo)
-    
-    if severity:
-        query = query.filter(AnomalyDetection.severity_level == severity.upper())
-    
-    if since:
-        query = query.filter(AnomalyDetection.detection_timestamp > since)
-    elif hours:
-        cutoff_time = datetime.utcnow() - timedelta(hours=hours)
-        query = query.filter(AnomalyDetection.detection_timestamp >= cutoff_time)
-    
-    # Get total count
-    total = query.count()
-    
-    # Get paginated results
-    anomalies = query.offset(offset).limit(limit).all()
-    
-    result = {
-        "anomalies": [
-            {
-                "id": anomaly.id,
-                "event_id": anomaly.event_id,
-                "user_login": anomaly.user_login,
-                "repository_name": anomaly.repository_name,
-                "event_type": anomaly.event_type,
-                "event_timestamp": anomaly.event_timestamp.isoformat(),
-                "detection_timestamp": anomaly.detection_timestamp.isoformat(),
-                "final_anomaly_score": anomaly.final_anomaly_score,
-                "severity_level": anomaly.severity_level,
-                "severity_description": anomaly.severity_description,
-                "behavioral_anomaly_score": anomaly.behavioral_anomaly_score,
-                "content_risk_score": anomaly.content_risk_score,
-                "temporal_anomaly_score": anomaly.temporal_anomaly_score,
-                "repository_criticality_score": anomaly.repository_criticality_score,
-                "ai_summary": anomaly.ai_summary,
-                "high_risk_indicators": json.loads(anomaly.high_risk_indicators) if anomaly.high_risk_indicators else [],
-                "behavioral_analysis": json.loads(anomaly.behavioral_analysis) if anomaly.behavioral_analysis else {},
-                "content_analysis": json.loads(anomaly.content_analysis) if anomaly.content_analysis else {},
-                "temporal_analysis": json.loads(anomaly.temporal_analysis) if anomaly.temporal_analysis else {},
-                "repository_context": json.loads(anomaly.repository_context) if anomaly.repository_context else {}
-            } for anomaly in anomalies
-        ],
-        "pagination": {
-            "page": page,
-            "limit": limit,
-            "total": total,
-            "pages": (total + limit - 1) // limit,
-            "has_next": page * limit < total,
-            "has_prev": page > 1
-        }
-    }
-    
-    # Cache the result for 30 seconds
-    try:
-        await redis_client.setex(cache_key, 30, json.dumps(result, default=str))
-        logger.info(f"Cached anomalies page {page}")
-    except Exception as e:
-        logger.warning(f"Redis cache write failed: {e}")
-    
-    return result
-
-# REMOVED: /incidents endpoint - use /anomalies instead for 100x better performance
+# REMOVED: /anomalies endpoint - now handled by /api/v1/anomalies router for better organization
 
 @app.get("/metrics")
 async def get_metrics(db: Session = Depends(get_db)):
@@ -570,7 +426,6 @@ async def get_incident_timeline(
     # Try to get from cache first
     cached_timeline = await cache_service.get_timeline(hours)
     if cached_timeline:
-        logger.debug(f"Serving timeline data from cache for {hours} hours")
         return {
             "timeRange": {
                 "start": (datetime.now() - timedelta(hours=hours)).isoformat(),
@@ -682,7 +537,6 @@ async def get_incident_timeline(
     
     # Cache the timeline data
     await cache_service.set_timeline(timeline_data, hours, ttl=300)  # 5 minute cache
-    logger.debug(f"Cached timeline data for {hours} hours")
     
     return {
         "timeRange": {
@@ -696,18 +550,15 @@ async def get_incident_timeline(
 
 @app.get("/ssr/initial-data")
 async def get_initial_data(db: Session = Depends(get_db)):
-    """Get initial data for SSR - optimized for fast page loads"""
+    """Get initial data for SSR - uses /api/v1/anomalies for consistency"""
     
     # Try to get from cache first
     cached_data = await cache_service.get("initial_data")
     if cached_data:
-        logger.debug("Serving initial data from cache")
         return cached_data
     
-    # Fetch anomalies with pagination (first 20)
-    anomalies_query = db.query(AnomalyDetection).order_by(AnomalyDetection.detection_timestamp.desc())
-    total_anomalies = anomalies_query.count()
-    anomalies = anomalies_query.limit(20).all()
+    # Use the unified /api/v1/anomalies endpoint for anomaly data
+    anomalies_data = await get_anomalies(page=1, limit=20, db=db)
     
     # Fetch repositories with aggregated data (first 20)
     repositories_query = db.query(
@@ -731,31 +582,7 @@ async def get_initial_data(db: Session = Depends(get_db)):
     avg_threat = db.query(func.avg(AnomalyDetection.final_anomaly_score)).scalar() or 0.0
     
     result = {
-        "anomalies": {
-            "anomalies": [
-                {
-                    "id": anomaly.id,
-                    "event_id": anomaly.event_id,
-                    "user_login": anomaly.user_login,
-                    "repository_name": anomaly.repository_name,
-                    "event_type": anomaly.event_type,
-                    "event_timestamp": anomaly.event_timestamp.isoformat(),
-                    "detection_timestamp": anomaly.detection_timestamp.isoformat(),
-                    "final_anomaly_score": anomaly.final_anomaly_score,
-                    "severity_level": anomaly.severity_level,
-                    "severity_description": anomaly.severity_description,
-                    "ai_summary": anomaly.ai_summary
-                } for anomaly in anomalies
-            ],
-            "pagination": {
-                "page": 1,
-                "limit": 20,
-                "total": total_anomalies,
-                "pages": (total_anomalies + 19) // 20,
-                "has_next": total_anomalies > 20,
-                "has_prev": False
-            }
-        },
+        "anomalies": anomalies_data,
         "repositories": {
             "repositories": [
                 {
@@ -776,7 +603,7 @@ async def get_initial_data(db: Session = Depends(get_db)):
             }
         },
         "metrics": {
-            "totalEvents": total_anomalies,
+            "totalEvents": anomalies_data["pagination"]["total"],
             "criticalAlerts": critical_anomalies,
             "repositories": unique_repos,
             "threatScore": float(avg_threat or 0.0)
@@ -785,7 +612,6 @@ async def get_initial_data(db: Session = Depends(get_db)):
     
     # Cache the result for 2 minutes (short TTL for dashboard data)
     await cache_service.set("initial_data", result, ttl=120)
-    logger.debug("Cached initial data")
     
     return result
 
@@ -909,7 +735,6 @@ async def websocket_endpoint(websocket: WebSocket):
         # Register with WebSocket manager without double-accepting
         websocket_manager.active_connections.append(websocket)
         websocket_manager.user_subscriptions[websocket] = set()
-        logger.info(f"WebSocket connected. Total connections: {len(active_websockets)}")
         
         try:
             # Keep connection alive and listen for messages
@@ -936,7 +761,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 websocket_manager.active_connections.remove(websocket)
             if websocket in websocket_manager.user_subscriptions:
                 del websocket_manager.user_subscriptions[websocket]
-            logger.info(f"WebSocket disconnected. Total connections: {len(active_websockets)}")
             
     except Exception as e:
         logger.error(f"WebSocket connection error: {e}")
@@ -968,30 +792,18 @@ async def broadcast_incident(incident: dict):
         if ws in active_websockets:
             active_websockets.remove(ws)
     
-    if active_websockets:
-        logger.info(f"Broadcasted incident to {len(active_websockets)} WebSocket clients")
     
     # Also broadcast to Redis for SSE clients (backward compatibility)
     await redis_client.publish("incidents", json.dumps(incident))
     
     # Invalidate relevant caches
     try:
-        # Clear incidents cache
-        keys = await redis_client.keys("incidents:page:*")
-        if keys:
-            await redis_client.delete(*keys)
-            logger.info(f"Invalidated {len(keys)} incident cache keys")
-        
         # Clear repositories cache
         keys = await redis_client.keys("repositories:page:*")
         if keys:
             await redis_client.delete(*keys)
-            logger.info(f"Invalidated {len(keys)} repository cache keys")
-            
+        
         # Clear SSR cache
-        keys = await redis_client.keys("ssr:initial-data:*")
-        if keys:
-            await redis_client.delete(*keys)
-            logger.info(f"Invalidated {len(keys)} SSR cache keys")
+        await cache_service.delete("initial_data")
     except Exception as e:
         logger.warning(f"Cache invalidation failed: {e}")
