@@ -6,6 +6,7 @@ https://conway-technical.fly.dev
 
 Auth with your Github PAT, connect to websocket by clicking the websocket "Disconnected/Connected" button in the navbar, and refresh the page to start.
 <img width="3837" height="2042" alt="image" src="https://github.com/user-attachments/assets/5683e762-3934-4d9f-a3af-d1f47970872c" />
+<img width="3823" height="2022" alt="image" src="https://github.com/user-attachments/assets/97044fb4-8949-46b0-8030-a5bd708868df" />
 
 ## Architecture Overview
 
