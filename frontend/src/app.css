@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 0.5rem;
+  }
+  
+  * {
+    border-color: hsl(217 32% 17%);
+  }
+  
+  body {
+    background-color: #0C0C0C;
+    color: #E5E5E5;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+@layer components {
+  .glow-effect {
+    box-shadow: 0 0 20px rgba(0, 212, 170, 0.3);
+  }
+  
+  .animate-glow {
+    animation: glow 2s ease-in-out infinite alternate;
+  }
+  
+  @keyframes glow {
+    from {
+      box-shadow: 0 0 5px rgb(0, 212, 170);
+    }
+    to {
+      box-shadow: 0 0 20px rgb(0, 212, 170), 0 0 30px rgb(0, 212, 170);
+    }
+  }
+}
