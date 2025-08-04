@@ -52,7 +52,7 @@
 
     try {
       const response = await fetch(
-        "http://localhost:8000/api/v1/anomalies/detection-matrix?hours=24"
+        "/api/v1/anomalies/detection-matrix?hours=24"
       );
       if (!response.ok) {
         throw new Error(`Failed to fetch matrix data: ${response.status}`);

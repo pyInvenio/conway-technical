@@ -45,7 +45,7 @@ function createRepoMonitorStore() {
         async loadPage(page = 1, limit = 20) {
             loading = true;
             try {
-                const response = await fetch(`http://localhost:8000/repositories?page=${page}&limit=${limit}`);
+                const response = await fetch(`/repositories?page=${page}&limit=${limit}`);
                 
                 if (response.ok) {
                     const data = await response.json();

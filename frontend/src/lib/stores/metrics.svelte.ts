@@ -21,7 +21,7 @@ function createMetricsStore() {
         async fetchMetrics() {
             loading = true;
             try {
-                const response = await fetch('http://localhost:8000/metrics');
+                const response = await fetch('/metrics');
                 
                 if (response.ok) {
                     const data = await response.json();
@@ -59,7 +59,7 @@ function createMetricsStore() {
         async fetchHealthMetrics() {
             loading = true;
             try {
-                const response = await fetch('http://localhost:8000/health', {
+                const response = await fetch('/health', {
                     credentials: 'include'
                 });
                 

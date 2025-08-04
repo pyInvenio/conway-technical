@@ -1,0 +1,59 @@
+:8080 {
+    # Backend Python API routes
+    handle /auth/validate {
+        reverse_proxy localhost:8000
+    }
+    
+    handle /repositories {
+        reverse_proxy localhost:8000
+    }
+    
+    handle /metrics {
+        reverse_proxy localhost:8000
+    }
+    
+    handle /analytics/* {
+        reverse_proxy localhost:8000
+    }
+    
+    handle /anomalies {
+        reverse_proxy localhost:8000
+    }
+    
+    handle /api/v1/* {
+        reverse_proxy localhost:8000
+    }
+    
+    handle /ssr/* {
+        reverse_proxy localhost:8000
+    }
+    
+    handle /admin/* {
+        reverse_proxy localhost:8000
+    }
+    
+    # WebSocket for real-time updates
+    handle /ws {
+        reverse_proxy localhost:8000
+    }
+    
+    # Health check
+    handle /health {
+        reverse_proxy localhost:8000
+    }
+    
+    # Backend API routes that conflict with frontend pages
+    # Route to backend only if it's an API call (not HTML page request)
+    @backend_api {
+        path /repository/* /event/*
+        not header Accept text/html
+    }
+    handle @backend_api {
+        reverse_proxy localhost:8000
+    }
+    
+    # Everything else goes to frontend (including /api/* SvelteKit routes)
+    handle {
+        reverse_proxy localhost:3000
+    }
+}

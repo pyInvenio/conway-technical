@@ -1,0 +1,57 @@
+# Unified Dockerfile for both backend and frontend
+FROM node:20-alpine as frontend-build
+
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm ci
+# Install the Node adapter
+RUN npm install -D @sveltejs/adapter-node
+COPY frontend/ .
+RUN npm run build
+
+# Backend and runtime stage
+FROM python:3.10-slim
+
+# Install system dependencies including Node.js, supervisor, and Caddy
+RUN apt-get update && apt-get install -y \
+    gcc \
+    postgresql-client \
+    curl \
+    supervisor \
+    debian-keyring \
+    debian-archive-keyring \
+    apt-transport-https \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg \
+    && curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list \
+    && apt-get update \
+    && apt-get install -y caddy \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy and install backend
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY backend/app ./app
+COPY backend/alembic ./alembic
+COPY backend/alembic.ini .
+
+# Copy frontend build and package files
+COPY --from=frontend-build /app/frontend/build ./frontend/build
+COPY --from=frontend-build /app/frontend/package*.json ./frontend/
+WORKDIR /app/frontend
+RUN npm ci --production
+WORKDIR /app
+
+# Copy configuration files
+COPY Caddyfile /etc/caddy/Caddyfile
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
+EXPOSE 8080
+
+CMD ["/app/start.sh"]

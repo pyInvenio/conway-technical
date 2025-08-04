@@ -89,7 +89,7 @@ function createAnomalyStore() {
         async loadPage(page = 1, limit = 20) {
             loading = true;
             try {
-                const response = await fetch(`http://localhost:8000/api/v1/anomalies?page=${page}&limit=${limit}`);
+                const response = await fetch(`/api/v1/anomalies?page=${page}&limit=${limit}`);
                 
                 if (response.ok) {
                     const data = await response.json();

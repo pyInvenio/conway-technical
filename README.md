@@ -2,6 +2,10 @@
 
 A real-time GitHub activity monitoring system with AI-powered anomaly detection that identifies suspicious patterns across public repositories using multi-factor behavioral analysis.
 
+https://conway-technical.fly.dev
+
+Auth with your Github PAT, connect to websocket by clicking the websocket "Disconnected/Connected" button in the navbar, and refresh the page to start.
+
 ## Architecture Overview
 
 The system employs a multi-tier architecture designed for scalability and real-time processing:

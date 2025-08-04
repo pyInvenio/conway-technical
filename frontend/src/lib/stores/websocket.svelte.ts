@@ -78,7 +78,7 @@ function createWebSocketStore() {
             
             try {
                 // Connect without token requirement for basic anomaly streaming
-                const wsUrl = `ws://localhost:8000/ws`;
+                const wsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
                 ws = new WebSocket(wsUrl);
                 
                 ws.onopen = () => {
