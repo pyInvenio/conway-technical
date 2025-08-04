@@ -1,6 +1,6 @@
 # GitHub Anomaly Detection System
 
-A real-time GitHub activity monitoring system with AI-powered anomaly detection that identifies suspicious patterns across public repositories using multi-factor behavioral analysis.
+A real-time GitHub activity monitoring system with AI-powered anomaly detection that identifies suspicious patterns across public repositories using multi-factor behavioral analysis. Time to complete: ~14 hours
 
 https://conway-technical.fly.dev
 
